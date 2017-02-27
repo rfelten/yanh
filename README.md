@@ -1,7 +1,7 @@
 # YANH - Yet Another (Python) Network Helper
 
 ## What is this?
-This is a set of Python 3 scripts to simplify things related to Wi-Fi analysis setups. It helps to
+This is a Python 2.7 module to simplify things related to Wi-Fi analysis setups. It helps to
 setup APs (hostapd based), connect as STAtion, create traffic (using Ostinato) and create packet traces.
 
 ## Installation
@@ -9,7 +9,7 @@ setup APs (hostapd based), connect as STAtion, create traffic (using Ostinato) a
 Depencencies:
 
 - hostapd
-- ostinato
+- ostinato <- only support python 2.7 :(
 - sudo 
 uncommend:
 ```bash
@@ -23,7 +23,9 @@ At the bottom of the file add:
 ## Usage
 - user needs to be have SUODers rigtjs
 - manupulate ap.config[] before ap.start()
-- run tests with arguments: (need to provide interfaces) 
+- run tests with arguments: (need to provide interfaces)
+- "Connection Refused - make sure that 'drone' is running at '%s' and the interface '%s' is up."
+
 ```bash
 $ tests/test_ap.py ap=wlxf4f26d0ec262 sta=wlx10feed1465e3
 ```
