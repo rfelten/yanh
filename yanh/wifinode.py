@@ -105,6 +105,9 @@ class Node(object):
                 return line.split("HWaddr ")[-1]
         return None
 
+    def get_interface(self):
+        return self.interface
+
     def stop(self):
         self.stop_dump()
         self.remove_monitor()
@@ -118,10 +121,14 @@ class AP(Node):
     country_code=DE
     channel=6
     auth_algs=1
+    hw_mode=g
+    ieee80211n=1
+    wmm_enabled=1
+    ht_capab=[HT20][SHORT-GI-20]
     """
 
     def __init__(self, interface, hostapd_conf=None):
-        super().__init__()
+        super(AP, self).__init__()
         if hostapd_conf is None:
             hostapd_conf = self.hostapd_default_conf
         self.config = dict([(x[0], x[1]) for x in [line.strip().split("=") for line in hostapd_conf.split('\n')] if len(x) > 1])
@@ -130,7 +137,6 @@ class AP(Node):
         self._fn_hostapdconf = "/tmp/yanh_hostapd.conf"
         self._fn_hosapdpid = "/tmp/yanh_hostapd.pid"
         self._fn_hosapdlog = "/tmp/yanh_hostapd.log"
-
 
     def start(self):
         # FIXME: test if there is a running hostapd instance (on this interface)?
@@ -143,37 +149,38 @@ class AP(Node):
             f.write('\n'.join(['%s=%s' % (key, value) for (key, value) in self.config.items()]))
         cmd = "sudo hostapd -B -t -P %s -f %s %s " % (self._fn_hosapdpid, self._fn_hosapdlog, self._fn_hostapdconf)
         os.system(cmd)
-        time.sleep(0.5)  # wait for hostapd coming up
+        logger.debug(cmd)
+        time.sleep(10)  # wait for hostapd coming up
         try:
             with open(self._fn_hosapdpid) as f:
                 self._pid = int(f.read())
                 logger.info("started hostapd with pid=%d. logfile: %s" % (self._pid, self._fn_hosapdlog))
-        except FileNotFoundError:
+        except OSError: # FileNotFoundError
             logger.error("failed to start hostapd. see logfile '%s' for more info" % self._fn_hosapdlog)
 
     def stop(self):
         if self._pid == -1:
-            super().stop()
+            super(AP, self).stop()
             return
-        logger.info("stop hostapt at interface '%s'" % self.interface)
+        logger.info("stop hostapd at interface '%s'" % self.interface)
         #os.kill(self._pid, signal.SIGTERM)  # PermissionError: [Errno 1] Operation not permitted
         os.system("sudo kill %d" % self._pid)
         # os.system("sudo ifconfig %s down" % self.interface) # bad idea if other stuff is running on this interface too
         # os.system("sudo nmcli radio wifi on")  # annoying
         self._pid = -1
-        super().stop()
+        super(AP, self).stop()
 
 
 class STA(Node):
 
     def __init__(self, interface):
-        super().__init__()
+        super(STA, self).__init__()
         self.interface = interface
         logger.info("setup station at interface '%s'" % self.interface)
 
     def __del__(self):
         self.disconnect()
-        super().stop()
+        super(STA, self).stop()
 
     def connect_to(self, ssid):
         logger.info("connect interface '%s' to ssid '%s'" % (self.interface, ssid))
