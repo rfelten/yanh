@@ -22,11 +22,9 @@
 import os
 import sys
 import time
+import signal
 import subprocess
-import threading
 import logging
-import pyshark
-import warnings
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
 logger.addHandler(logging.StreamHandler(sys.stdout))
@@ -38,8 +36,7 @@ class Node(object):
         self.interface = None
         self.monitor_ifname = None
         self.dump_filename = ""
-        self._reader_thread = None
-        self._cap = None
+        self._reader_process = None
         self._fn_cap_template = "/tmp/%s.pcapng"  # % self.monitor_ifname
 
     def attach_monitor(self):
@@ -65,7 +62,7 @@ class Node(object):
         self.monitor_ifname = None
 
     def start_dump(self, filename=None):
-        if self._reader_thread is not None:
+        if self._reader_process is not None:
             return
         if self.monitor_ifname is None:
             self.attach_monitor()
@@ -73,27 +70,21 @@ class Node(object):
             output_file = self._fn_cap_template % self.monitor_ifname
         else:
             output_file = filename
-        self.dump_filename = output_file
-        self._reader_thread = threading.Thread(target=self._read_frames, args=(output_file,))
-        self._reader_thread.start()
-        time.sleep(1)
 
-    def _read_frames(self, output_file):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self._cap = pyshark.LiveCapture(interface=self.monitor_ifname, output_file=output_file)
-            #self.cap.set_debug()
-            self._cap.sniff()  # this will block
+        self.dump_filename = output_file
+        # see http://stackoverflow.com/questions/4789837/how-to-terminate-a-python-subprocess-launched-with-shell-true
+        tshark_cmd = "/usr/bin/tshark -n -w %s -i %s" % (output_file, self.monitor_ifname)
+        logger.debug(tshark_cmd)
+        self._reader_process = subprocess.Popen(tshark_cmd, stdout=subprocess.PIPE,
+                               shell=True, preexec_fn=os.setsid)
+        time.sleep(0.5)
 
     def stop_dump(self):
-        if self._reader_thread is None:
+        if self._reader_process is None:
             return
-        if self._cap is None:
-            return
-        self._cap.close()  # this will stop self.reader_thread
-        self._cap = None
-        # self.reader_thread.join() # will crate tshark zombies -> hangs forever
-        self._reader_thread = None
+        # see http://stackoverflow.com/questions/4789837/how-to-terminate-a-python-subprocess-launched-with-shell-true
+        os.killpg(os.getpgid(self._reader_process.pid), signal.SIGTERM)  # Send the signal to all the process groups
+        os.killpg(os.getpgid(self._reader_process.pid), signal.SIGTERM)  # Send the signal to all the process groups
 
     def delete_dump(self):
         os.remove(self.dump_filename)
@@ -146,7 +137,7 @@ class AP(Node):
         os.system("sudo ifconfig %s up" % self.interface)  # need to be up
         time.sleep(0.5)  # wait for interface coming up
         with open(self._fn_hostapdconf, 'wt') as f:
-            f.write('\n'.join(['%s=%s' % (key, value) for (key, value) in self.config.items()]))
+            f.write('\n'.join(['%s=%s' % (key, value) for (key, value) in self.config.items()]) + '\n')
         cmd = "sudo hostapd -B -t -P %s -f %s %s " % (self._fn_hosapdpid, self._fn_hosapdlog, self._fn_hostapdconf)
         os.system(cmd)
         logger.debug(cmd)
