@@ -112,4 +112,10 @@ class EthernetTrafficGenerator(TrafficGenerator):
         self.drone.stopTransmit(self.tx_port)
         for stream_id in self.streams:
             self.drone.deleteStream(stream_id)
+            # see https://github.com/pstavirs/ostinato/issues/179
+            stream_cfg = ost_pb.StreamConfigList()
+            stream_cfg.port_id.id = 0
+            self.drone.modifyStream(stream_cfg)
         self.drone.disconnect()
+
+
