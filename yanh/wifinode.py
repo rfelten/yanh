@@ -73,7 +73,7 @@ class Node(object):
 
         self.dump_filename = output_file
         # see http://stackoverflow.com/questions/4789837/how-to-terminate-a-python-subprocess-launched-with-shell-true
-        tshark_cmd = "/usr/bin/tshark -n -w %s -i %s" % (output_file, self.monitor_ifname)
+        tshark_cmd = "/usr/bin/tshark -s 100 -n -w %s -i %s" % (output_file, self.monitor_ifname)
         logger.debug(tshark_cmd)
         self._reader_process = subprocess.Popen(tshark_cmd, stdout=subprocess.PIPE,
                                shell=True, preexec_fn=os.setsid)
@@ -115,7 +115,7 @@ class AP(Node):
     hw_mode=g
     ieee80211n=1
     wmm_enabled=1
-    ht_capab=[HT20][SHORT-GI-20]
+    ht_capab=[HT20]
     """
 
     def __init__(self, interface, hostapd_conf=None):
