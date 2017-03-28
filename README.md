@@ -8,8 +8,16 @@ setup APs (hostapd based), connect as STAtion, create traffic (using Ostinato) a
 
 Depencencies:
 
-- hostapd
-- ostinato <- only support python 2.7 :(
+- hostapd - $ sudo apt-get install hostapd
+- ostinato <- only support python 2.7 :( - use precompiled drone + 
+$ sudo apt-get install python-minimal python-setuptools python-pip
+$ sudo pip install python-ostinato
+- tshark - $ sudo apt-get install tshark 
+- tshark v2.0+ is needed due to fieldnames like 'radiotap.channel.flags.5ghz',  https://www.wireshark.org/docs/dfref/r/radiotap.html
+- $ sudo usermod -a -G wireshark $USER
+amnd relogin
+- $ sudo setcap 'CAP_NET_RAW+eip CAP_NET_ADMIN+eip' /usr/bin/dumpcap (https://wiki.wireshark.org/CaptureSetup/CapturePrivileges )
+- $ sudo chmod +s /usr/bin/dumpcap
 - sudo 
 uncommend:
 ```bash
@@ -29,5 +37,3 @@ At the bottom of the file add:
 ```bash
 $ tests/test_ap.py ap=wlxf4f26d0ec262 sta=wlx10feed1465e3
 ```
-
-read http://stackoverflow.com/questions/25476648/how-to-read-cap-files-other-than-pyshark-that-is-faster-than-scapys-rdpcap

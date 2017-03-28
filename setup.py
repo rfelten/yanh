@@ -30,7 +30,7 @@ with open('LICENSE') as f:
 
 setup(
     name='yanh',
-    version='0.1.0',
+    version='0.2.0',
     description='Yat Another (Python) Network Helper',
     long_description=readme,
     author='Robert Felten',

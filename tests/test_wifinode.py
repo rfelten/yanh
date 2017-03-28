@@ -20,6 +20,8 @@
 #   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 
 import subprocess
+from multiprocessing import Queue
+from Queue import Empty
 import unittest
 import time
 import sys
@@ -118,6 +120,27 @@ class TestPacketCapture(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.sta.dump_filename))
         self.ap.delete_dump()
         self.sta.delete_dump()
+
+
+class TestAirtime(unittest.TestCase):
+
+    def setUp(self):
+        self.sta = STA(interface=INTERFACE_STA)
+
+    def test_airtime(self):
+        output = Queue()
+        self.sta.start_airtime_calculation(output_queue=output)
+        time.sleep(5)
+        self.assertTrue(output.qsize() > 0)  # FIXME: any better idea?
+        #while True:
+        #    try:
+        #        print(output.get(block=False))
+        #    except Empty:
+        #        break
+
+    def tearDown(self):
+        self.sta.stop()
+
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:

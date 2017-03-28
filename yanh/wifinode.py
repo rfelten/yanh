@@ -24,6 +24,7 @@ import sys
 import time
 import signal
 import subprocess
+from yanh.airtime import AirtimeReader
 import logging
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
@@ -38,6 +39,7 @@ class Node(object):
         self.dump_filename = ""
         self._reader_process = None
         self._fn_cap_template = "/tmp/%s.pcapng"  # % self.monitor_ifname
+        self._airtime_reader = None
 
     def attach_monitor(self):
         mon_if = self.interface[:10] + "mon"  # wlxf4f26d0ec262mon fails -> max 16 chars
@@ -89,6 +91,19 @@ class Node(object):
     def delete_dump(self):
         os.remove(self.dump_filename)
 
+    def start_airtime_calculation(self, output_queue):
+        if self._airtime_reader is not None:  # ready running
+            return
+        if self.monitor_ifname is None:
+            self.attach_monitor()
+        self._airtime_reader = AirtimeReader(monitor_interface=self.monitor_ifname, output_queue=output_queue)
+        self._airtime_reader.start()
+
+    def stop_airtime_calculation(self):
+        if self._airtime_reader is not None:
+            self._airtime_reader.stop()
+            self._airtime_reader = None
+
     def get_mac_addr(self):
         ifconfig_stdout = subprocess.check_output(["ifconfig", "-a"]).decode('UTF-8')
         for line in ifconfig_stdout.split('\n'):
@@ -101,6 +116,7 @@ class Node(object):
 
     def stop(self):
         self.stop_dump()
+        self.stop_airtime_calculation()
         self.remove_monitor()
 
 
