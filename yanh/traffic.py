@@ -119,3 +119,65 @@ class EthernetTrafficGenerator(TrafficGenerator):
         self.drone.disconnect()
 
 
+
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+
+#   This file is part of the yanh project.
+#
+#   Copyright (C) 2017 Robert Felten - https://github.com/rfelten/
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+
+from traffic import EthernetTrafficGenerator, ConnectionRefusedException
+import time
+import sys
+
+
+def run(cfg):
+    traf_gen = None
+    # Setup Traffic Generator
+    if "drone_host" in cfg.keys():
+        print("start traffic generator on '%s/%s'" % (cfg['drone_host'], cfg['drone_if'] ))
+        print("traffic generator goes %s -> %s" % (cfg['src_mac'], cfg['dest_mac']))
+        traf_gen = EthernetTrafficGenerator(
+            drone_hostname=cfg['drone_host'],
+            drone_ifname=cfg['drone_if'],
+            src_mac=cfg['src_mac'],
+            dest_mac=cfg['dest_mac']
+        )
+
+        traf_gen.add_stream(
+            frame_len=int(cfg['frame_len']),
+            num_packets=int(cfg['num_packets']),
+            packets_per_sec=int(cfg['packets_per_sec']))
+        traf_gen.start()
+
+    # Wait for completion
+    if "duration_sec" in cfg.keys():
+        print("sleep for %s sec" % cfg['duration_sec'])
+        time.sleep(float(cfg['duration_sec']))
+
+    # Tear down
+    if traf_gen is not None:
+        traf_gen.stop()
+
+if __name__ == '__main__':
+    cfg = dict()
+    if len(sys.argv) > 1:
+        for arg in sys.argv[1:]:
+            key, val = arg.split("=")
+            cfg[key] = val
+        run(cfg)

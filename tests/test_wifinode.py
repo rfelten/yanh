@@ -21,7 +21,7 @@
 
 import subprocess
 from multiprocessing import Queue
-from Queue import Empty
+from queue import Empty
 import unittest
 import time
 import sys
@@ -29,8 +29,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'yanh'))
 from wifinode import AP, STA
 
-INTERFACE_STA = "wlx10feed1465e3"
-INTERFACE_AP = "wlxf4f26d0ec262"
+INTERFACE_STA = "wlxf4f26d0ec262"
+INTERFACE_AP = "wlx10feed1465e3"
 
 
 class TestAP(unittest.TestCase):

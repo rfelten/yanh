@@ -21,7 +21,7 @@
 
 from multiprocessing import Event, Queue
 from subprocess import PIPE, Popen
-from Queue import Empty
+from queue import Empty
 import threading
 import math
 import time
@@ -286,7 +286,7 @@ class Airtime(object):
 class ReaderThread(object):
 
     def __init__(self, cmd, output_queue):
-        self._cmd = ["stdbuf", "-oL"] + cmd.split(" ")  # turn off pipe buffering via 'stdbuf' util
+        self._cmd = cmd
         self.output_queue = output_queue
         self._process_to_read = None
         self._reader_thread = None
@@ -296,13 +296,12 @@ class ReaderThread(object):
         if self._reader_thread is None:
             self._exit_flag.clear()
             logger.debug("start external process: '%s'" % self._cmd)
-            self._process_to_read = Popen(self._cmd, stdout=PIPE, bufsize=1, close_fds=True)
+            self._process_to_read = Popen(self._cmd, stdout=PIPE, bufsize=1, close_fds=True, shell=True)
             self._reader_thread = threading.Thread(target=self._read, args=())
             self._reader_thread.start()
 
     def stop(self):
         if self._reader_thread is not None:
-            #self._process.terminate()  # dont work
             self._exit_flag.set()
             self._reader_thread.join()
             self._reader_thread = None
@@ -314,8 +313,9 @@ class ReaderThread(object):
         buf = ''
         while not self._exit_flag.is_set():
             # read char-wise
-            ch = self._process_to_read.stdout.read(1)
+            ch = str(self._process_to_read.stdout.read(1), encoding="utf-8")
             if ch == '' and self._process_to_read.poll() is not None:
+                time.sleep(0.1)
                 continue
             if ch != '':
                 buf += ch
@@ -330,18 +330,17 @@ class ReaderThread(object):
         self._process_to_read.stdout.close()
 
 
-class AirtimeReader(object):
+class AirtimeCalculator(object):
 
     def __init__(self, monitor_interface, output_queue):
         self.output_queue = output_queue
         # Unfortunately tshark stops packet parsing, if field unknown/not set.
         # Therefore we need to setup 2 reader, one for 11n signals and one for 11b/g signals :(
-        # t
-        airtime_N_cmd = "tshark -i %s -T fields -e radiotap.mactime -e frame.len -e radiotap.present.mcs " \
+        airtime_N_cmd = "tshark -l -i %s -T fields -e radiotap.mactime -e frame.len -e radiotap.present.mcs " \
                         "-e radiotap.dbm_antsignal -e radiotap.channel.freq -e radiotap.mcs.index -e radiotap.mcs.bw " \
                         "-e radiotap.mcs.gi -e radiotap.flags.badfcs" % monitor_interface
 
-        airtime_BG_cmd = "tshark -i %s -T fields -e radiotap.mactime -e frame.len -e radiotap.present.mcs " \
+        airtime_BG_cmd = "tshark -l -i %s -T fields -e radiotap.mactime -e frame.len -e radiotap.present.mcs " \
                          "-e radiotap.dbm_antsignal -e radiotap.channel.freq -e radiotap.datarate " \
                          "-e radiotap.channel.flags.cck -e radiotap.channel.flags.dynamic -e radiotap.channel.flags.ofdm " \
                          "-e radiotap.flags.preamble -e radiotap.channel.flags.2ghz -e radiotap.channel.flags.5ghz " \

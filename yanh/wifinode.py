@@ -24,7 +24,7 @@ import sys
 import time
 import signal
 import subprocess
-from yanh.airtime import AirtimeReader
+from airtime import AirtimeCalculator
 import logging
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
@@ -96,7 +96,7 @@ class Node(object):
             return
         if self.monitor_ifname is None:
             self.attach_monitor()
-        self._airtime_reader = AirtimeReader(monitor_interface=self.monitor_ifname, output_queue=output_queue)
+        self._airtime_reader = AirtimeCalculator(monitor_interface=self.monitor_ifname, output_queue=output_queue)
         self._airtime_reader.start()
 
     def stop_airtime_calculation(self):
@@ -147,13 +147,14 @@ class AP(Node):
 
     def start(self):
         # FIXME: test if there is a running hostapd instance (on this interface)?
-        logger.info("start hostapt at interface '%s'" % self.interface)
+        logger.info("start hostapd at interface '%s'" % self.interface)
         os.system("sudo nmcli radio wifi off")  # only needed if networkmanager is installed (default on ubuntu-desktop)
         os.system("sudo rfkill unblock wlan")
         os.system("sudo ifconfig %s up" % self.interface)  # need to be up
         time.sleep(0.5)  # wait for interface coming up
         with open(self._fn_hostapdconf, 'wt') as f:
             f.write('\n'.join(['%s=%s' % (key, value) for (key, value) in self.config.items()]) + '\n')
+        f.close()
         cmd = "sudo hostapd -B -t -P %s -f %s %s " % (self._fn_hosapdpid, self._fn_hosapdlog, self._fn_hostapdconf)
         os.system(cmd)
         logger.debug(cmd)
@@ -162,6 +163,7 @@ class AP(Node):
             with open(self._fn_hosapdpid) as f:
                 self._pid = int(f.read())
                 logger.info("started hostapd with pid=%d. logfile: %s" % (self._pid, self._fn_hosapdlog))
+            f.close()
         except OSError: # FileNotFoundError
             logger.error("failed to start hostapd. see logfile '%s' for more info" % self._fn_hosapdlog)
 
