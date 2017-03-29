@@ -33,17 +33,22 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class Airtime(object):
-    """ Calculates the Airtime / TX Time of an given frame.
-    It doesn't include slot, ACK, RTS, etc timing - it's just the packet duration.
+    """ Calculates the Airtime / TXTIME of an given frame.
+    It doesn't include idle times like DIFS, SIFS, Signal Extension - it's just the packet duration.
+    All times are noted in us (microseconds) and rates are noted in MBit/s.
 
-    Code based on FreeBSD's ath_hal and Linux mac80211 util.c See
+    FIXME: For 11n rates there is no differentiation between mixted mode and greenfield mode. So for greenfield
+    frames the calculation is 4us too long.
+
+
+    Code is inspired by FreeBSD's ath_hal and Linux mac80211 util.c See
     https://github.com/freebsd/freebsd/blob/master/sys/dev/ath/ath_hal/ah.c
     http://lxr.free-electrons.com/source/net/mac80211/util.c?v=3.19#L110
     ath9k/xmit.c:ath_buf_set_rate(), ath9k/xmit.c:ath_pkt_duration() ath9k/xmit.c:ath9k_hw_computetxtime()
 
-    Useful resources:
-    IEEE Std 802.11-2007 - Part 11: Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY) Specifications
-    " 20.3.6 Timing-related parameters ff
+    All references are referring to from:  IEEE Std 802.11-2012
+
+    Also helpful:
     802.11n: A Survival Guide Wi-Fi Above 100 Mbps By Matthew S. Gast Publisher: O'Reilly Media (PDF, EBook)
     http://www.ni.com/tutorial/7131/en/
     http://blog.nettraptor.net/?p=51
@@ -58,14 +63,16 @@ class Airtime(object):
 
     # 802.11b/g constants
     CCK_SIFS_TIME = 10
-    CCK_PREAMBLE_BITS = 144  # 128 Sync + 16 SFD
-    CCK_PLCP_BITS = 48  # 8 Signal + 8 Service + 16 Lenght + 16 CRC
-
-    OFDM_SIFS_TIME = 16  # Table 18-17 - OFDM PHY characteristics
-    OFDM_PREAMBLE_TIME = 20  #[us] 16 Preamble + 4 Signal 18.3.2.4 Timing related parameters
-    OFDM_PLCP_BITS = 22  # 11g: ? 24 =4 Rate + 1 Res. + 12 Lenght + 1 Parity + 6 Tail  FIXME: name is wrong, is 16 ServiceBits +6 PadBits =22
-    # ODFM_PLCP_BITS_11a # ? 40 =  4 Rate + 1 Reserved + 12 Length + 1 Parity + 6 Tail + 16 Sertcide
-    OFDM_SYMBOL_TIME = 4  # [us]
+    DSSS_PREAMBLE_BITS = 144  # 128 Sync + 16 SFD
+    DSSS_PLCP_BITS = 48  # 8 Signal + 8 Service + 16 Lenght + 16 CRC
+    # 802.11a/g constants
+    OFDM_PREAMBLE_TIME = 8+8  # See Table 18-4 and 18-5, section 18.3.2.3
+    OFDM_PREAMBLE_SYNC_TIME = 8  # See 19.3.2.5
+    OFDM_PREAMBLE_SIGNAL_TIME = 4  # See 19.3.2.5
+    OFDM_SERVICE_BITS = 16  # See 19.3.2.5
+    OFDM_PAD_BITS = 6  # See 19.3.2.5
+    OFDM_SYMBOL_TIME_GI = 4  # [us]
+    OFDM_SYMBOL_TIME_SGI = 3.6  # [us]
 
     # 802.11n constants
     HT_L_STF = 8  # Non-HT Legacy Short Training Field
@@ -73,29 +80,20 @@ class Airtime(object):
     HT_L_SIG = 4  # Non-HT Legacy Signal Field
     HT_SIG = 8  # High Throughput Signal Field
     HT_STF = 4  # High Throughput Short Training Field
+    HT_LTF = 4  # High Throughput Long Training Field
 
-    @staticmethod
-    def HT_LTF(n):  # High Throughput Long Training Field # FIXME, worng:  see Table 20-13—Number of HT-DLTFs required for data space-time streams
-        return n * 4
-
-    ht20_bps = [
+    ht20_Ndbps = [  # Table 20-30 MCS parameters for mandatory 20 MHz  N_SS=1-4 N_ES=1
         26, 52, 78, 104, 156, 208, 234, 260,
         52, 104, 156, 208, 312, 416, 468, 520,
         78, 156, 234, 312, 468, 624, 702, 780,
         104, 208, 312, 416, 624, 832, 936, 1040
     ]
-    ht40_bps = [
+    ht40_Ncbps = [  # Table 20-34 MCS parameters for optional 40 MHz N_SS=1-4, N_ES=1
         54, 108, 162, 216, 324, 432, 486, 540,
         108, 216, 324, 432, 648, 864, 972, 1080,
         162, 324, 486, 648, 972, 1296, 1458, 1620,
         216, 432, 648, 864, 1296, 1728, 1944, 2160
     ]
-
-    @staticmethod
-    def div_and_ceil(numerator, denominator):
-        """C hacker style integer division with ceil, from macro:
-        #define	 howmany(x, y)	(((x)+((y)-1))/(y))"""
-        return (numerator + (denominator - 1)) // denominator
 
     @staticmethod
     def mcs_to_streams(mcs):
@@ -108,10 +106,15 @@ class Airtime(object):
         elif mcs < 32:
             return 4
         else:
-            raise Exception("unknown mcs: %d" % mcs)
+            raise Exception("unsupported mcs: %d" % mcs)
 
     @staticmethod
-    def computetxtime(frame_len, phy_type, rate, short_preamble, is_2GHz=True, include_SIFS=False):
+    def streams_2_N_LTF(streams):  # See Table 20-13 and Table 20-14, section 20.3.9.4.6, p. 1704
+        num_ltf = [1, 3, 6, 8]
+        return num_ltf[streams]
+
+    @staticmethod
+    def computetxtime(frame_len, phy_type, rate, short_preamble, is_2GHz=True, include_SIFS=False): # FIXME kick unused
         if not(type(frame_len) is int
                 and phy_type in Airtime.phy_types
                 and type(rate) is float
@@ -122,94 +125,55 @@ class Airtime(object):
             raise Exception("Invalid parameter type")
 
         frame_bits = frame_len * 8
-        tx_time = 0
-
+        N_DBPS = 4 * rate
+        # DSSS, CCK, etc. See IEEE802.11-2012 Section 17.3.4
         if phy_type == Airtime.PHY_CCK:
-            phy_time = Airtime.CCK_PREAMBLE_BITS + Airtime.CCK_PLCP_BITS
-
-            if short_preamble and rate != 1:  # short preamble not possible with rate = 1Mbit/s
-                phy_time /= 2  # Preamble 144bits->72bits@1Mbit/s + PLCP 48bits: @1Mbit/s->2@Mbit/s == divide by 2
-            num_bits = frame_bits
-            tx_time = phy_time + (num_bits / rate)  # FIXME: ceil here
-            if include_SIFS:
-                tx_time += Airtime.CCK_SIFS_TIME
-
-        elif phy_type == Airtime.PHY_DSSSOFDM:  # DSSS-OFDM / Wireshark calls this "Dynamic CCK-OFDM" ?
-                # See 19.8.3.4 DSSS-OFDM TXTIME calculations
-                # TXTIME = PreambleLengthDSSS (144/72us) + PLCPHeaderTimeDSSS (48/24us)
-                #   + PreambleLengthOFDM (8us) + PLCPSignalOFDM (4us)
-                #   + 4 * Ceiling((PLCPServiceBits (16) + 8 * (NumberOfOctets[Framelen]) + PadBits (6bits) / N DBPS ) + SignalExtension (6us)
-                phy_time = 144 + 42  # FIXME: typo 42 -> 48
-                if short_preamble:
-                    phy_time /= 2
-                phy_time += 8 + 4
-                phy_time += 4 * math.ceil(16 + frame_bits + 6) / (4*rate)  # N_DBPS, see Table 18-4 Modulation-dependent parameters
-                phy_time += 6  # FIXME: do not add OFDM Signal Extension (its a idle time)
-                tx_time = phy_time
-
-        elif phy_type == Airtime.PHY_OFDM:  # ERP-OFDM, DSSS-OFDM, ?
-            # 19.3.3.4.2 Overview of the DSSS-OFDM PLCP PSDU encoding process
-            # 19.8.3 TXTIME / 19.3.2.6 DSSS-OFDM PLCP length field calculation (2012)
-            if is_2GHz:
-                # 802.11g-only (ERP-OFDM TXTIME calculations)
-
-                # FIXME: Doublecheck in IEEE801.11-2007 + clarify  # FIXME: use -2012
-                # 18.4.3 OFDM TXTIME calculation
-                # TXTIME = T_PREAMBLE + T_SIGNAL + T_SYM * N_SYM
-                # Equ. 18-11
-                # N_SYM = Ceiling ((16 + 8 * LENGTH + 6)/N DBPS )
-                ## No "Signal Extension" ?
-                ## v.s.
-                # 19.8.3.2 ERP-OFDM TXTIME calculations
-                # TXTIME = T PREAMBLE + T SIGNAL + T SYM * Ceiling ((16 + 8 * LENGTH + 6)/ N DBPS ) + Signal Extension
-                ## v.s
-                # 17.3.4 High Rate TXTIME calculation
-                # TXTIME = PreambleLength + PLCPHeaderTime + Ceiling(((LENGTH+PBCC) * 8) / DATARATE)
-                # TXTIME = TPREAMBLE + TSIGNAL + TSYM * Ceiling ((16 + 8 * LENGTH + 6)/NDBPS)
-
-                bits_per_symbol = Airtime.OFDM_SYMBOL_TIME * rate
-                num_bits = Airtime.OFDM_PLCP_BITS + frame_bits
-                num_symbols = Airtime.div_and_ceil(num_bits, bits_per_symbol)
-                tx_time = Airtime.OFDM_PREAMBLE_TIME + num_symbols * Airtime.OFDM_SYMBOL_TIME
-
-                # Alternative calculation, closer to formula in IEEE802.11-2007
-                # tx_time_std = 16 + 4 + 4* math.ceil( (16 + frame_len * 8 + 6) / (4 * rate)) #4x rate = N_DBPS
-                # if tx_time_std != tx_time:
-                #    raise Exception("tx_time_std != tx_time:", tx_time_std, tx_time)  # not occurred yet
-
-                if include_SIFS:
-                    tx_time += Airtime.OFDM_SIFS_TIME
-            else:
-                raise Exception("Sry, 5GHz 11g PHY not supported yet...")  # FIXME
+            tx_time = Airtime.DSSS_PREAMBLE_BITS + Airtime.DSSS_PLCP_BITS
+            if short_preamble and rate != 1:
+                tx_time /= 2
+            tx_time += math.ceil(frame_bits / rate)
+        # DSSS-OFDM / Wireshark calls this "Dynamic CCK-OFDM" ? - IEEE802.11-201219.8.3.4 DSSS-OFDM TXTIME calculations
+        elif phy_type == Airtime.PHY_DSSSOFDM:
+            tx_time = Airtime.DSSS_PREAMBLE_BITS + Airtime.DSSS_PLCP_BITS
+            if short_preamble:
+                tx_time /= 2
+            tx_time += Airtime.OFDM_PREAMBLE_SYNC_TIME + Airtime.OFDM_PREAMBLE_SIGNAL_TIME
+            tx_time += 4 * math.ceil(Airtime.OFDM_SERVICE_BITS + frame_bits + Airtime.OFDM_PAD_BITS / N_DBPS)
+            #tx_time += 6  # omit OFDM SignalExtension
+        # OFDM # See IEEE802.11-2012 formula 18-29
+        elif phy_type == Airtime.PHY_OFDM:
+            tx_time = Airtime.OFDM_PREAMBLE_TIME + Airtime.OFDM_PREAMBLE_SIGNAL_TIME
+            tx_time += 4 * math.ceil((Airtime.OFDM_SERVICE_BITS + frame_bits + Airtime.OFDM_PAD_BITS) / N_DBPS)
         else:
-            logger.warn("Can't compute airtime for frame_len=%d, phy_type=%d, rate=%d, short_preamble=%s" %
-                        (frame_len, phy_type, rate, short_preamble))
-        return int(math.ceil(tx_time))
+            raise Exception("Unsupported phy_type: %d" % phy_type)
+
+        return int(tx_time)
 
     @staticmethod
-    def computedur_ht(frame_len, mcs_index, num_streams, is_ht40, is_shortGI):
+    def computedur_ht(frame_len, mcs_index, is_ht40, is_shortGI):
         if not(type(frame_len) is int
                 and type(mcs_index) is int
-                and type(num_streams) is int
                 and type(is_ht40) is bool
                 and type(is_shortGI) is bool
                 ):
             raise Exception("Invalid parameter type")
+
         if is_ht40:
-            bits_per_symbol = Airtime.ht40_bps[mcs_index & 0x1f]
+            N_DBPS = Airtime.ht40_Ncbps[mcs_index]
         else:
-            bits_per_symbol = Airtime.ht20_bps[mcs_index & 0x1f]
-        num_bits = Airtime.OFDM_PLCP_BITS + (frame_len * 8)
-        num_symbols = Airtime.div_and_ceil(num_bits, bits_per_symbol)
-        if is_shortGI: # Short Guard Interval (SGI)
-            tx_time = ((num_symbols * 18) + 4) // 5  # 3.6us (OFDM Data Symbol [3.2us] + short GI [0.4us])
-            # tx_time = math.ceil(num_symbols * 3.6)
+            N_DBPS = Airtime.ht20_Ndbps[mcs_index]
+
+        frame_bits = frame_len * 8
+        payload_bits = Airtime.OFDM_SERVICE_BITS + frame_bits + Airtime.OFDM_PAD_BITS  # this assumes ES=1
+        num_payloadsymbols = math.ceil(payload_bits / N_DBPS)  # this assumes no STBC is used
+        if is_shortGI:
+            tx_time_payload = num_payloadsymbols * Airtime.OFDM_SYMBOL_TIME_SGI
         else:
-            tx_time = num_symbols * Airtime.OFDM_SYMBOL_TIME  # 4 us (OFDM Data Symbol [3.2us] + long GI [0.8us])
-        return tx_time + Airtime.HT_L_STF + Airtime.HT_L_LTF + \
-            Airtime.HT_L_SIG + Airtime.HT_SIG + Airtime.HT_STF + Airtime.HT_LTF(num_streams)
-            # FIXME: signal extnsions? see 20.4.3 TXTIME calculation
-            # FIXME Table 20-12—Determining the number of space-time streams
+            tx_time_payload = num_payloadsymbols * Airtime.OFDM_SYMBOL_TIME_GI
+        ht_preamble_fix = Airtime.HT_L_STF + Airtime.HT_L_LTF + Airtime.HT_L_SIG + Airtime.HT_SIG
+        ht_preamble_var = Airtime.HT_LTF * Airtime.streams_2_N_LTF(Airtime.mcs_to_streams(mcs_index))
+        tx_time = ht_preamble_fix + ht_preamble_var + tx_time_payload
+        return tx_time
 
     @staticmethod
     def tshark_output_parser(data_type, tshark_output):
@@ -238,10 +202,10 @@ class Airtime(object):
                 is_fcs_bad = bool(int(fields[12]))
                 # simple plausibility checks:
                 if is_cck + is_dynamic + is_ofdm != 1:
-                    logger.warn("Malformed line from tshark detected: %s" % tshark_output)
+                    logger.warning("Malformed line from tshark detected: %s" % tshark_output)
                     return
                 if is_2GHz + is_5GHz != 1:
-                    logger.warn("Malformed line from tshark detected: %s" % tshark_output)
+                    logger.warning("Malformed line from tshark detected: %s" % tshark_output)
                     return
                 if bool(is_cck):
                     phy = Airtime.PHY_CCK
@@ -250,7 +214,7 @@ class Airtime(object):
                 elif bool(is_dynamic):
                     phy = Airtime.PHY_DSSSOFDM
                 else:
-                    logger.warn("Packet at tsf=%d has unknown modulation type!" % tsf)
+                    logger.warning("Packet at tsf=%d has unknown modulation type!" % tsf)
                     return
 
                 tx_dur = Airtime.computetxtime(
@@ -262,24 +226,19 @@ class Airtime(object):
                 pass  # ignore data from the wrong source type
 
         elif data_type == "n":
-            """airtime_N_cmd = "tshark -i %s -T fields -e radiotap.mactime -e frame.len -e radiotap.present.mcs " \
-                        "-e radiotap.dbm_antsignal -e radiotap.channel.freq -e radiotap.mcs.index -e radiotap.mcs.bw " \
-                        "-e radiotap.mcs.gi -e radiotap.flags.badfcs" % monitor_interface
-            Example: '1318337149\t128\t0,0\t-58,-58\t2412\t\t\t\t0\n' """
             if mcs_info == "1,0" or mcs_info == "1":  # tshark gives both :(
                 mcs_index = int(fields[5])
-                streams = Airtime.mcs_to_streams(mcs_index)
                 is_ht40 = bool(int(fields[6]))
                 is_shortGI = bool(int(fields[7]))
                 is_fcs_bad = bool(int(fields[8]))
                 tx_dur = Airtime.computedur_ht(
-                        frame_len=frame_len, num_streams=streams, mcs_index=mcs_index,
+                        frame_len=frame_len, mcs_index=mcs_index,
                         is_ht40=is_ht40, is_shortGI=is_shortGI)
-                return tsf, tx_dur, ant_pwr, freq, is_fcs_bad, "N"
+                return tsf, tx_dur, ant_pwr, freq, is_fcs_bad, "N", is_shortGI
             else:
                 pass  # ignore data from the wrong source type
         else:
-            logger.warn("data type %s is unknown" % data_type)
+            logger.warning("data type %s is unknown" % data_type)
         return
 
 
