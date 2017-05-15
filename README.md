@@ -1,8 +1,10 @@
 # YANH - Yet Another (Python) Network Helper
 
 ## What is this?
-This is a Python 2.7 module to simplify things related to Wi-Fi analysis setups. It helps to
+This is a Python 3 module to simplify things related to Wi-Fi analysis setups. It helps to
 setup APs (hostapd based), connect as STAtion, create traffic (using Ostinato) and create packet traces.
+
+Also it provides to caluclate the TXTIME / airtime via the Airtime class.
 
 ## Installation
 
@@ -14,8 +16,7 @@ $ sudo apt-get install python-minimal python-setuptools python-pip
 $ sudo pip install python-ostinato
 - tshark - $ sudo apt-get install tshark 
 - tshark v2.0+ is needed due to fieldnames like 'radiotap.channel.flags.5ghz',  https://www.wireshark.org/docs/dfref/r/radiotap.html
-- $ sudo usermod -a -G wireshark $USER
-amnd relogin
+- $ sudo usermod -a -G wireshark $USER (need to  relogin afterwards)
 - $ sudo setcap 'CAP_NET_RAW+eip CAP_NET_ADMIN+eip' /usr/bin/dumpcap (https://wiki.wireshark.org/CaptureSetup/CapturePrivileges )
 - $ sudo chmod +s /usr/bin/dumpcap
 - sudo 
